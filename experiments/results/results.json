@@ -1,0 +1,83 @@
+{
+  "_note": "nuScenes val, compact BEVFusion student, 6 epochs, batch 2 x grad-accum 4, AMP, single RTX 4090, torch 1.10.2+cu113.",
+
+  "trained_runs": {
+    "_note": "Three independent 6-epoch training runs evaluated as trained.",
+    "S0_no_checkpoint":      {"mAP": 0.5137257, "mAOE": 0.7247, "NDS": 0.4886691},
+    "S0_CP_unfixed":         {"mAP": 0.5139128, "mAOE": 0.7910, "NDS": 0.4800992},
+    "S0_CP_Fix":             {"mAP": 0.5152,    "mAOE": 0.7524, "NDS": 0.4840},
+    "observed_mAOE_gap_unfixed_minus_fixed": 0.0386,
+    "caveat": "These are three separate runs. Their differences contain both the defect and ordinary run-to-run variance and cannot be attributed to the defect."
+  },
+
+  "paired_within_run": {
+    "_note": "THE decisive experiment. Same weights (S0_CP_Fix epoch 6), same data order, same seed, trained running statistics kept, each layer's configured momentum kept. Only difference: the 5 BatchNorm layers inside the checkpointed region are updated once vs twice per iteration. The second update is applied through a forward hook using the batch statistics the layer just saw, which is algebraically what the recomputation pass does. The 46 layers outside the region receive identical updates in both arms and cancel.",
+    "n_batches": 50,
+    "momentum_distribution_over_51_bn_layers": {"0.01": 29, "0.1": 22},
+    "target_layers": [
+      "encoders.camera.vtransform.dtransform.1",
+      "encoders.camera.vtransform.dtransform.4",
+      "encoders.camera.vtransform.dtransform.7",
+      "encoders.camera.vtransform.depthnet.1",
+      "encoders.camera.vtransform.depthnet.4"
+    ],
+    "target_layer_momentum": 0.1,
+    "num_batches_tracked_delta": {"single": {"target": 50, "others": 50},
+                                  "double": {"target": 100, "others": 50}},
+    "single": {"mAP": 0.4782, "mATE": 0.3758, "mASE": 0.2869, "mAOE": 0.7983, "mAVE": 1.3428, "mAAE": 0.3699, "NDS": 0.4560},
+    "double": {"mAP": 0.4786, "mATE": 0.3756, "mASE": 0.2877, "mAOE": 0.7968, "mAVE": 1.3410, "mAAE": 0.3706, "NDS": 0.4562},
+    "delta_double_minus_single": {"mAP": 0.0004, "mATE": -0.0002, "mASE": 0.0008, "mAOE": -0.0015, "mAVE": -0.0018, "mAAE": 0.0007, "NDS": 0.0002},
+    "conclusion": "Every metric moves by <= 0.0018 with mixed signs; mAOE moves in the direction opposite to the hypothesis. The isolated end-to-end effect of the defect is indistinguishable from noise, and ~25x smaller than the 0.0386 gap between the two independent runs. That gap is therefore run-to-run variance, not the defect."
+  },
+
+  "paired_within_run_v1_superseded": {
+    "_note": "Earlier variant, kept for transparency. It reset all running statistics and forced momentum=0.1 on all 51 layers, which is wrong for the 29 layers configured at 0.01. Both arms landed at mAP ~0.33, far outside the deployed regime, so its absolute numbers are not usable. Its delta agrees in magnitude with the v2 run.",
+    "single": {"mAP": 0.3334, "mAOE": 0.8619, "NDS": 0.3643},
+    "double": {"mAP": 0.3363, "mAOE": 0.8642, "NDS": 0.3658},
+    "delta_mAOE_double_minus_single": 0.0023
+  },
+
+  "bn_recalibration_negative_result": {
+    "_note": "Tests the intuitive remedy: freeze the weights, re-estimate the running statistics on the training set with cumulative averaging (momentum=None), 300 batches. Weights verified bit-identical before/after (281 non-BN parameters unchanged, 153 BN buffers changed).",
+    "unfixed_recalibrated": {"mAP": 0.2853, "mATE": 0.4883, "mASE": 0.3313, "mAOE": 0.9355, "mAVE": 1.3192, "mAAE": 0.3638, "NDS": 0.3308},
+    "fixed_recalibrated":   {"mAP": 0.3287, "mATE": 0.4557, "mASE": 0.3200, "mAOE": 0.8645, "mAVE": 1.3891, "mAAE": 0.3905, "NDS": 0.3613},
+    "conclusion": "Both collapse from mAP ~0.515 to 0.29-0.33. Re-estimating the running statistics does NOT substitute for the statistics accumulated during training. The remedy does not work; affected runs need retraining with the fixed code."
+  },
+
+  "contamination_measurement": {
+    "_note": "How far the stored running statistics sit from a 300-batch cumulative-average reference, in units of the reference std. The 46 layers outside the checkpointed region are the internal control.",
+    "inside_checkpointed_region": {"layers": 5, "unfixed": 0.0248, "fixed": 0.0129, "ratio": 1.93},
+    "control_rest_of_network":    {"layers": 46, "unfixed": 0.1550, "fixed": 0.1522, "ratio": 1.01},
+    "caveat": "The reference is itself a 300-batch estimate, so absolute deviations should not be read on their own. The ratio is robust because both groups share the same reference; reference noise compresses the ratio toward 1 rather than inflating it."
+  },
+
+  "applicability_boundaries": {
+    "eager_use_reentrant_true":   {"defect": "present, 2 updates/iter", "this_fix": "correct, bit-identical to no-checkpoint"},
+    "eager_use_reentrant_false":  {"defect": "present, 2 updates/iter", "this_fix": "correct, bit-identical to no-checkpoint"},
+    "SyncBatchNorm":              {"defect": "present, 2 updates/iter", "this_fix": "correct, bit-identical", "measured_on": "torch 1.10.2, RTX 4090"},
+    "torch_compile_inductor":     {"defect": "absent", "why": "AOTAutograd functionalizes the buffer mutation, so it is applied once", "this_fix": "unnecessary here, and causes a graph break"},
+    "cuda_graph_capture":         {"defect": "not applicable", "why": "checkpointing saves/restores RNG state, which capture rejects: 'Cannot call CUDAGeneratorImpl::current_seed during CUDA graph capture'"},
+    "FSDP":                       {"defect": "untested", "why": "needs a GPU and torch >= 1.12; no environment with both was available"}
+  },
+
+  "fairscale_comparison": {
+    "_note": "5 training iterations on one conv+BN block, lr=0, fixed seed. Reported as num_batches_tracked / sum(|running_mean|). FairScale's patch_batchnorm keys off torch.is_grad_enabled(), which holds for its own CheckpointFunction but not for torch.utils.checkpoint with use_reentrant=False.",
+    "no_checkpointing_reference": {"reentrant": "5 / 0.03902", "non_reentrant": "-"},
+    "stock_checkpoint":           {"reentrant": "10 / 0.05563", "non_reentrant": "10 / 0.05563"},
+    "fairscale_patch_batchnorm":  {"reentrant": "5 / 0.03902",  "non_reentrant": "10 / 0.05563"},
+    "this_fix_call_order":        {"reentrant": "5 / 0.03902",  "non_reentrant": "5 / 0.03902"}
+  },
+
+  "scan": {
+    "repositories": 6,
+    "checkpoint_call_sites": 33,
+    "affected": 20,
+    "note": "Only statically resolvable wrapping patterns were counted; 20 is a lower bound. Transformer backbones (Swin, MiT, ViT) are unaffected because LayerNorm keeps no running state."
+  },
+
+  "overhead": {
+    "_note": "370740-iteration run, seconds per iteration.",
+    "unfixed": 0.470, "fixed": 0.467,
+    "patch_microbenchmark": "alternating 5 rounds x 40 iterations, median 6.387 -> 6.360 ms/iter (-0.4%, within noise)"
+  }
+}

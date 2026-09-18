@@ -1,0 +1,259 @@
+diff --git a/mmseg/models/backbones/cgnet.py b/mmseg/models/backbones/cgnet.py
+index b74b494..9401683 100644
+--- a/mmseg/models/backbones/cgnet.py
++++ b/mmseg/models/backbones/cgnet.py
+@@ -9,6 +9,7 @@ from mmengine.model import BaseModule
+ from mmengine.utils.dl_utils.parrots_wrapper import _BatchNorm
+ 
+ from mmseg.registry import MODELS
++from ..utils import bn_safe_checkpoint
+ 
+ 
+ class GlobalContextExtractor(nn.Module):
+@@ -161,7 +162,7 @@ class ContextGuidedBlock(nn.Module):
+                 return out
+ 
+         if self.with_cp and x.requires_grad:
+-            out = cp.checkpoint(_inner_forward, x)
++            out = bn_safe_checkpoint(_inner_forward, x, module=self)
+         else:
+             out = _inner_forward(x)
+ 
+diff --git a/mmseg/models/backbones/resnest.py b/mmseg/models/backbones/resnest.py
+index 3cc380b..ed140eb 100644
+--- a/mmseg/models/backbones/resnest.py
++++ b/mmseg/models/backbones/resnest.py
+@@ -4,11 +4,10 @@ import math
+ import torch
+ import torch.nn as nn
+ import torch.nn.functional as F
+-import torch.utils.checkpoint as cp
+ from mmcv.cnn import build_conv_layer, build_norm_layer
+ 
+ from mmseg.registry import MODELS
+-from ..utils import ResLayer
++from ..utils import ResLayer, bn_safe_checkpoint
+ from .resnet import Bottleneck as _Bottleneck
+ from .resnet import ResNetV1d
+ 
+@@ -258,7 +257,7 @@ class Bottleneck(_Bottleneck):
+             return out
+ 
+         if self.with_cp and x.requires_grad:
+-            out = cp.checkpoint(_inner_forward, x)
++            out = bn_safe_checkpoint(_inner_forward, x, module=self)
+         else:
+             out = _inner_forward(x)
+ 
+diff --git a/mmseg/models/backbones/resnet.py b/mmseg/models/backbones/resnet.py
+index 9226c90..d73d998 100644
+--- a/mmseg/models/backbones/resnet.py
++++ b/mmseg/models/backbones/resnet.py
+@@ -2,13 +2,12 @@
+ import warnings
+ 
+ import torch.nn as nn
+-import torch.utils.checkpoint as cp
+ from mmcv.cnn import build_conv_layer, build_norm_layer, build_plugin_layer
+ from mmengine.model import BaseModule
+ from mmengine.utils.dl_utils.parrots_wrapper import _BatchNorm
+ 
+ from mmseg.registry import MODELS
+-from ..utils import ResLayer
++from ..utils import ResLayer, bn_safe_checkpoint
+ 
+ 
+ class BasicBlock(BaseModule):
+@@ -87,7 +86,7 @@ class BasicBlock(BaseModule):
+             return out
+ 
+         if self.with_cp and x.requires_grad:
+-            out = cp.checkpoint(_inner_forward, x)
++            out = bn_safe_checkpoint(_inner_forward, x, module=self)
+         else:
+             out = _inner_forward(x)
+ 
+@@ -298,7 +297,7 @@ class Bottleneck(BaseModule):
+             return out
+ 
+         if self.with_cp and x.requires_grad:
+-            out = cp.checkpoint(_inner_forward, x)
++            out = bn_safe_checkpoint(_inner_forward, x, module=self)
+         else:
+             out = _inner_forward(x)
+ 
+diff --git a/mmseg/models/backbones/unet.py b/mmseg/models/backbones/unet.py
+index 545921d..a61e31b 100644
+--- a/mmseg/models/backbones/unet.py
++++ b/mmseg/models/backbones/unet.py
+@@ -2,13 +2,12 @@
+ import warnings
+ 
+ import torch.nn as nn
+-import torch.utils.checkpoint as cp
+ from mmcv.cnn import ConvModule, build_activation_layer, build_norm_layer
+ from mmengine.model import BaseModule
+ from mmengine.utils.dl_utils.parrots_wrapper import _BatchNorm
+ 
+ from mmseg.registry import MODELS
+-from ..utils import UpConvBlock, Upsample
++from ..utils import UpConvBlock, Upsample, bn_safe_checkpoint
+ 
+ 
+ class BasicConvBlock(nn.Module):
+@@ -78,7 +77,7 @@ class BasicConvBlock(nn.Module):
+         """Forward function."""
+ 
+         if self.with_cp and x.requires_grad:
+-            out = cp.checkpoint(self.convs, x)
++            out = bn_safe_checkpoint(self.convs, x, module=self)
+         else:
+             out = self.convs(x)
+         return out
+@@ -139,7 +138,7 @@ class DeconvModule(nn.Module):
+         """Forward function."""
+ 
+         if self.with_cp and x.requires_grad:
+-            out = cp.checkpoint(self.deconv_upsamping, x)
++            out = bn_safe_checkpoint(self.deconv_upsamping, x, module=self)
+         else:
+             out = self.deconv_upsamping(x)
+         return out
+@@ -213,7 +212,7 @@ class InterpConv(nn.Module):
+         """Forward function."""
+ 
+         if self.with_cp and x.requires_grad:
+-            out = cp.checkpoint(self.interp_upsample, x)
++            out = bn_safe_checkpoint(self.interp_upsample, x, module=self)
+         else:
+             out = self.interp_upsample(x)
+         return out
+diff --git a/mmseg/models/utils/__init__.py b/mmseg/models/utils/__init__.py
+index c0751b1..7e8454d 100644
+--- a/mmseg/models/utils/__init__.py
++++ b/mmseg/models/utils/__init__.py
+@@ -1,5 +1,6 @@
+ # Copyright (c) OpenMMLab. All rights reserved.
+ from .basic_block import BasicBlock, Bottleneck
++from .bn_safe_checkpoint import bn_safe_checkpoint
+ from .embed import PatchEmbed
+ from .encoding import Encoding
+ from .inverted_residual import InvertedResidual, InvertedResidualV3
+@@ -18,6 +19,7 @@ from .wrappers import Upsample, resize
+ from .san_layers import MLP, LayerNorm2d, cross_attn_layer
+ 
+ __all__ = [
++    'bn_safe_checkpoint',
+     'ResLayer', 'SelfAttentionBlock', 'make_divisible', 'InvertedResidual',
+     'UpConvBlock', 'InvertedResidualV3', 'SELayer', 'PatchEmbed',
+     'nchw_to_nlc', 'nlc_to_nchw', 'nchw2nlc2nchw', 'nlc2nchw2nlc', 'Encoding',
+diff --git a/mmseg/models/utils/bn_safe_checkpoint.py b/mmseg/models/utils/bn_safe_checkpoint.py
+new file mode 100644
+index 0000000..47d2156
+--- /dev/null
++++ b/mmseg/models/utils/bn_safe_checkpoint.py
+@@ -0,0 +1,72 @@
++# Copyright (c) OpenMMLab. All rights reserved.
++# -*- coding: utf-8 -*-
++"""Drop-in replacement for torch.utils.checkpoint.checkpoint that keeps
++BatchNorm running statistics from being accumulated twice per iteration.
++
++See pytorch/pytorch#96136. Gradient checkpointing runs the wrapped function
++twice per training iteration (once under no_grad to produce the output, once
++with grad enabled to rebuild the graph). Both passes update the running
++statistics of any BatchNorm inside the wrapped region, so the same batch is
++accumulated twice — algebraically equivalent to raising BN's momentum from
++``m`` to ``2m - m**2`` (0.1 -> 0.19 at the PyTorch default).
++
++This module protects the buffers during the *recomputation* pass, so the
++statistics recorded are the ones from the pass whose output actually feeds
++the rest of the network — matching what a non-checkpointed run records.
++"""
++import torch.utils.checkpoint as cp
++from torch.nn.modules.batchnorm import _BatchNorm
++
++_TRACKED = ('running_mean', 'running_var', 'num_batches_tracked')
++
++
++def _protect(function, module):
++    """Wrap ``function`` so BN buffers under ``module`` survive recomputation.
++
++    A fresh wrapper (and therefore a fresh ``state``) is built for every
++    ``checkpoint`` call, so the flag tracks the two passes of that one call.
++    Counting passes rather than testing ``torch.is_grad_enabled()`` is what
++    makes this correct under ``use_reentrant=False`` too: there both passes
++    run with grad enabled, so a grad-mode test would suppress both updates.
++    """
++    state = {'first_pass_done': False}
++
++    def wrapper(*args, **kwargs):
++        # First pass: let BN update exactly as it would without checkpointing.
++        if not state['first_pass_done']:
++            state['first_pass_done'] = True
++            return function(*args, **kwargs)
++        # Recomputation pass: rebind the buffers to clones, restore afterwards.
++        saved = []
++        try:
++            for sub in module.modules():
++                if isinstance(sub, _BatchNorm):
++                    for name in _TRACKED:
++                        value = getattr(sub, name, None)
++                        if value is not None:
++                            saved.append((sub, name, value))
++                            setattr(sub, name, value.detach().clone())
++            return function(*args, **kwargs)
++        finally:
++            for sub, name, value in reversed(saved):
++                setattr(sub, name, value)
++
++    return wrapper
++
++
++def bn_safe_checkpoint(function, *args, module=None, **kwargs):
++    """``torch.utils.checkpoint.checkpoint`` with BN statistics protection.
++
++    Args:
++        function (callable): the function to checkpoint, as usual.
++        module (nn.Module, optional): the module owning the BatchNorm layers
++            inside ``function``. Pass ``self`` from the calling block. When
++            omitted the call falls through to the stock implementation, so
++            this is a safe drop-in.
++
++    Returns:
++        Same as ``torch.utils.checkpoint.checkpoint``.
++    """
++    if module is not None and module.training:
++        function = _protect(function, module)
++    return cp.checkpoint(function, *args, **kwargs)
+diff --git a/mmseg/models/utils/inverted_residual.py b/mmseg/models/utils/inverted_residual.py
+index 56190b3..2509374 100644
+--- a/mmseg/models/utils/inverted_residual.py
++++ b/mmseg/models/utils/inverted_residual.py
+@@ -1,8 +1,8 @@
+ # Copyright (c) OpenMMLab. All rights reserved.
+ from mmcv.cnn import ConvModule
+ from torch import nn
+-from torch.utils import checkpoint as cp
+ 
++from .bn_safe_checkpoint import bn_safe_checkpoint
+ from .se_layer import SELayer
+ 
+ 
+@@ -92,7 +92,7 @@ class InvertedResidual(nn.Module):
+                 return self.conv(x)
+ 
+         if self.with_cp and x.requires_grad:
+-            out = cp.checkpoint(_inner_forward, x)
++            out = bn_safe_checkpoint(_inner_forward, x, module=self)
+         else:
+             out = _inner_forward(x)
+ 
+@@ -206,7 +206,7 @@ class InvertedResidualV3(nn.Module):
+                 return out
+ 
+         if self.with_cp and x.requires_grad:
+-            out = cp.checkpoint(_inner_forward, x)
++            out = bn_safe_checkpoint(_inner_forward, x, module=self)
+         else:
+             out = _inner_forward(x)
+ 

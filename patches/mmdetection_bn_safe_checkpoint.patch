@@ -1,0 +1,296 @@
+diff --git a/mmdet/models/backbones/detectors_resnet.py b/mmdet/models/backbones/detectors_resnet.py
+index f33424f..66b6f6f 100644
+--- a/mmdet/models/backbones/detectors_resnet.py
++++ b/mmdet/models/backbones/detectors_resnet.py
+@@ -1,6 +1,5 @@
+ # Copyright (c) OpenMMLab. All rights reserved.
+ import torch.nn as nn
+-import torch.utils.checkpoint as cp
+ from mmcv.cnn import build_conv_layer, build_norm_layer
+ from mmengine.logging import MMLogger
+ from mmengine.model import Sequential, constant_init, kaiming_init
+@@ -8,6 +7,7 @@ from mmengine.runner.checkpoint import load_checkpoint
+ from torch.nn.modules.batchnorm import _BatchNorm
+ 
+ from mmdet.registry import MODELS
++from ..layers import bn_safe_checkpoint
+ from .resnet import BasicBlock
+ from .resnet import Bottleneck as _Bottleneck
+ from .resnet import ResNet
+@@ -104,7 +104,7 @@ class Bottleneck(_Bottleneck):
+             return out
+ 
+         if self.with_cp and x.requires_grad:
+-            out = cp.checkpoint(_inner_forward, x)
++            out = bn_safe_checkpoint(_inner_forward, x, module=self)
+         else:
+             out = _inner_forward(x)
+ 
+diff --git a/mmdet/models/backbones/efficientnet.py b/mmdet/models/backbones/efficientnet.py
+index 8484afe..32f2abc 100644
+--- a/mmdet/models/backbones/efficientnet.py
++++ b/mmdet/models/backbones/efficientnet.py
+@@ -5,12 +5,11 @@ from functools import partial
+ 
+ import torch
+ import torch.nn as nn
+-import torch.utils.checkpoint as cp
+ from mmcv.cnn.bricks import ConvModule, DropPath
+ from mmengine.model import BaseModule, Sequential
+ 
+ from mmdet.registry import MODELS
+-from ..layers import InvertedResidual, SELayer
++from ..layers import InvertedResidual, SELayer, bn_safe_checkpoint
+ from ..utils import make_divisible
+ 
+ 
+@@ -106,7 +105,7 @@ class EdgeResidual(BaseModule):
+                 return out
+ 
+         if self.with_cp and x.requires_grad:
+-            out = cp.checkpoint(_inner_forward, x)
++            out = bn_safe_checkpoint(_inner_forward, x, module=self)
+         else:
+             out = _inner_forward(x)
+ 
+diff --git a/mmdet/models/backbones/res2net.py b/mmdet/models/backbones/res2net.py
+index 958fc88..e751990 100644
+--- a/mmdet/models/backbones/res2net.py
++++ b/mmdet/models/backbones/res2net.py
+@@ -3,11 +3,11 @@ import math
+ 
+ import torch
+ import torch.nn as nn
+-import torch.utils.checkpoint as cp
+ from mmcv.cnn import build_conv_layer, build_norm_layer
+ from mmengine.model import Sequential
+ 
+ from mmdet.registry import MODELS
++from ..layers import bn_safe_checkpoint
+ from .resnet import Bottleneck as _Bottleneck
+ from .resnet import ResNet
+ 
+@@ -151,7 +151,7 @@ class Bottle2neck(_Bottleneck):
+             return out
+ 
+         if self.with_cp and x.requires_grad:
+-            out = cp.checkpoint(_inner_forward, x)
++            out = bn_safe_checkpoint(_inner_forward, x, module=self)
+         else:
+             out = _inner_forward(x)
+ 
+diff --git a/mmdet/models/backbones/resnest.py b/mmdet/models/backbones/resnest.py
+index d4466c4..1e4ef1f 100644
+--- a/mmdet/models/backbones/resnest.py
++++ b/mmdet/models/backbones/resnest.py
+@@ -4,12 +4,11 @@ import math
+ import torch
+ import torch.nn as nn
+ import torch.nn.functional as F
+-import torch.utils.checkpoint as cp
+ from mmcv.cnn import build_conv_layer, build_norm_layer
+ from mmengine.model import BaseModule
+ 
+ from mmdet.registry import MODELS
+-from ..layers import ResLayer
++from ..layers import ResLayer, bn_safe_checkpoint
+ from .resnet import Bottleneck as _Bottleneck
+ from .resnet import ResNetV1d
+ 
+@@ -265,7 +264,7 @@ class Bottleneck(_Bottleneck):
+             return out
+ 
+         if self.with_cp and x.requires_grad:
+-            out = cp.checkpoint(_inner_forward, x)
++            out = bn_safe_checkpoint(_inner_forward, x, module=self)
+         else:
+             out = _inner_forward(x)
+ 
+diff --git a/mmdet/models/backbones/resnet.py b/mmdet/models/backbones/resnet.py
+index 1d6f48f..993ceae 100644
+--- a/mmdet/models/backbones/resnet.py
++++ b/mmdet/models/backbones/resnet.py
+@@ -2,13 +2,12 @@
+ import warnings
+ 
+ import torch.nn as nn
+-import torch.utils.checkpoint as cp
+ from mmcv.cnn import build_conv_layer, build_norm_layer, build_plugin_layer
+ from mmengine.model import BaseModule
+ from torch.nn.modules.batchnorm import _BatchNorm
+ 
+ from mmdet.registry import MODELS
+-from ..layers import ResLayer
++from ..layers import ResLayer, bn_safe_checkpoint
+ 
+ 
+ class BasicBlock(BaseModule):
+@@ -85,7 +84,7 @@ class BasicBlock(BaseModule):
+             return out
+ 
+         if self.with_cp and x.requires_grad:
+-            out = cp.checkpoint(_inner_forward, x)
++            out = bn_safe_checkpoint(_inner_forward, x, module=self)
+         else:
+             out = _inner_forward(x)
+ 
+@@ -293,7 +292,7 @@ class Bottleneck(BaseModule):
+             return out
+ 
+         if self.with_cp and x.requires_grad:
+-            out = cp.checkpoint(_inner_forward, x)
++            out = bn_safe_checkpoint(_inner_forward, x, module=self)
+         else:
+             out = _inner_forward(x)
+ 
+diff --git a/mmdet/models/backbones/trident_resnet.py b/mmdet/models/backbones/trident_resnet.py
+index 22c7635..a156cb7 100644
+--- a/mmdet/models/backbones/trident_resnet.py
++++ b/mmdet/models/backbones/trident_resnet.py
+@@ -2,13 +2,13 @@
+ import torch
+ import torch.nn as nn
+ import torch.nn.functional as F
+-import torch.utils.checkpoint as cp
+ from mmcv.cnn import build_conv_layer, build_norm_layer
+ from mmengine.model import BaseModule
+ from torch.nn.modules.utils import _pair
+ 
+ from mmdet.models.backbones.resnet import Bottleneck, ResNet
+ from mmdet.registry import MODELS
++from ..layers import bn_safe_checkpoint
+ 
+ 
+ class TridentConv(BaseModule):
+@@ -169,7 +169,7 @@ class TridentBottleneck(Bottleneck):
+             return out
+ 
+         if self.with_cp and x.requires_grad:
+-            out = cp.checkpoint(_inner_forward, x)
++            out = bn_safe_checkpoint(_inner_forward, x, module=self)
+         else:
+             out = _inner_forward(x)
+ 
+diff --git a/mmdet/models/layers/__init__.py b/mmdet/models/layers/__init__.py
+index e3c41f6..b9250c5 100644
+--- a/mmdet/models/layers/__init__.py
++++ b/mmdet/models/layers/__init__.py
+@@ -1,6 +1,7 @@
+ # Copyright (c) OpenMMLab. All rights reserved.
+ from .activations import SiLU
+ from .bbox_nms import fast_nms, multiclass_nms
++from .bn_safe_checkpoint import bn_safe_checkpoint
+ from .brick_wrappers import (AdaptiveAvgPool2d, FrozenBatchNorm2d,
+                              adaptive_avg_pool2d)
+ from .conv_upsample import ConvUpsample
+@@ -41,6 +42,7 @@ from .transformer import (MLP, AdaptivePadding, CdnQueryGenerator,
+ # yapf: enable
+ 
+ __all__ = [
++    'bn_safe_checkpoint',
+     'fast_nms', 'multiclass_nms', 'mask_matrix_nms', 'DropBlock',
+     'PixelDecoder', 'TransformerEncoderPixelDecoder',
+     'MSDeformAttnPixelDecoder', 'ResLayer', 'PatchMerging',
+diff --git a/mmdet/models/layers/bn_safe_checkpoint.py b/mmdet/models/layers/bn_safe_checkpoint.py
+new file mode 100644
+index 0000000..47d2156
+--- /dev/null
++++ b/mmdet/models/layers/bn_safe_checkpoint.py
+@@ -0,0 +1,72 @@
++# Copyright (c) OpenMMLab. All rights reserved.
++# -*- coding: utf-8 -*-
++"""Drop-in replacement for torch.utils.checkpoint.checkpoint that keeps
++BatchNorm running statistics from being accumulated twice per iteration.
++
++See pytorch/pytorch#96136. Gradient checkpointing runs the wrapped function
++twice per training iteration (once under no_grad to produce the output, once
++with grad enabled to rebuild the graph). Both passes update the running
++statistics of any BatchNorm inside the wrapped region, so the same batch is
++accumulated twice — algebraically equivalent to raising BN's momentum from
++``m`` to ``2m - m**2`` (0.1 -> 0.19 at the PyTorch default).
++
++This module protects the buffers during the *recomputation* pass, so the
++statistics recorded are the ones from the pass whose output actually feeds
++the rest of the network — matching what a non-checkpointed run records.
++"""
++import torch.utils.checkpoint as cp
++from torch.nn.modules.batchnorm import _BatchNorm
++
++_TRACKED = ('running_mean', 'running_var', 'num_batches_tracked')
++
++
++def _protect(function, module):
++    """Wrap ``function`` so BN buffers under ``module`` survive recomputation.
++
++    A fresh wrapper (and therefore a fresh ``state``) is built for every
++    ``checkpoint`` call, so the flag tracks the two passes of that one call.
++    Counting passes rather than testing ``torch.is_grad_enabled()`` is what
++    makes this correct under ``use_reentrant=False`` too: there both passes
++    run with grad enabled, so a grad-mode test would suppress both updates.
++    """
++    state = {'first_pass_done': False}
++
++    def wrapper(*args, **kwargs):
++        # First pass: let BN update exactly as it would without checkpointing.
++        if not state['first_pass_done']:
++            state['first_pass_done'] = True
++            return function(*args, **kwargs)
++        # Recomputation pass: rebind the buffers to clones, restore afterwards.
++        saved = []
++        try:
++            for sub in module.modules():
++                if isinstance(sub, _BatchNorm):
++                    for name in _TRACKED:
++                        value = getattr(sub, name, None)
++                        if value is not None:
++                            saved.append((sub, name, value))
++                            setattr(sub, name, value.detach().clone())
++            return function(*args, **kwargs)
++        finally:
++            for sub, name, value in reversed(saved):
++                setattr(sub, name, value)
++
++    return wrapper
++
++
++def bn_safe_checkpoint(function, *args, module=None, **kwargs):
++    """``torch.utils.checkpoint.checkpoint`` with BN statistics protection.
++
++    Args:
++        function (callable): the function to checkpoint, as usual.
++        module (nn.Module, optional): the module owning the BatchNorm layers
++            inside ``function``. Pass ``self`` from the calling block. When
++            omitted the call falls through to the stock implementation, so
++            this is a safe drop-in.
++
++    Returns:
++        Same as ``torch.utils.checkpoint.checkpoint``.
++    """
++    if module is not None and module.training:
++        function = _protect(function, module)
++    return cp.checkpoint(function, *args, **kwargs)
+diff --git a/mmdet/models/layers/inverted_residual.py b/mmdet/models/layers/inverted_residual.py
+index a174ccc..43b0866 100644
+--- a/mmdet/models/layers/inverted_residual.py
++++ b/mmdet/models/layers/inverted_residual.py
+@@ -1,10 +1,10 @@
+ # Copyright (c) OpenMMLab. All rights reserved.
+ import torch.nn as nn
+-import torch.utils.checkpoint as cp
+ from mmcv.cnn import ConvModule
+ from mmcv.cnn.bricks import DropPath
+ from mmengine.model import BaseModule
+ 
++from .bn_safe_checkpoint import bn_safe_checkpoint
+ from .se_layer import SELayer
+ 
+ 
+@@ -123,7 +123,7 @@ class InvertedResidual(BaseModule):
+                 return out
+ 
+         if self.with_cp and x.requires_grad:
+-            out = cp.checkpoint(_inner_forward, x)
++            out = bn_safe_checkpoint(_inner_forward, x, module=self)
+         else:
+             out = _inner_forward(x)
+ 
